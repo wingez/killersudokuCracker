@@ -1,14 +1,24 @@
-from dataclasses import dataclass
-from tempfile import TemporaryDirectory
+import asyncio
+import base64
+import io
 import shutil
+import time
+from dataclasses import dataclass
 from typing import Tuple, List
 
-from PIL import Image
+# import cv2
 import numpy as np
-
-import cv2
-
 import pytesseract
+from PIL import Image
+from selenium import webdriver
+from selenium.common.exceptions import NoSuchElementException
+from selenium.webdriver import ActionChains
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.firefox.webdriver import WebDriver
+from webdriver_manager.firefox import GeckoDriverManager
+
+from temp import KillerSudoku
 
 CELL_SIZE = 72
 
@@ -18,12 +28,12 @@ pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tessera
 
 def remove_grid(array):
     # remove left and top bar
-    data[0:6, :] = 0
-    data[:, 0:6] = 0
+    array[0:6, :] = 0
+    array[:, 0:6] = 0
 
     far = 6 + 72 * 9 + 4 * 8
-    data[far:far + 6, :] = 0
-    data[:, far:far + 6] = 0
+    array[far:far + 6, :] = 0
+    array[:, far:far + 6] = 0
 
     for i in range(8):
         j = 6 + 72 * (i + 1) + 4 * i
@@ -62,10 +72,10 @@ def get_value_of_cell(arr, y, x):
     new_image.convert('RGB')
     new_image = new_image.resize((50, 50), Image.ANTIALIAS)
 
-    ret, img = cv2.threshold(np.array(new_image), 125, 255, cv2.THRESH_BINARY)
-    img = Image.fromarray(img)
+    # ret, img = cv2.threshold(np.array(new_image), 125, 255, cv2.THRESH_BINARY)
+    # img = Image.fromarray(img)
     # new_image.show()
-    v = pytesseract.image_to_string(img, config='--psm 13 digits').strip()
+    v = pytesseract.image_to_string(new_image, config='--psm 13 digits').strip()
 
     return int(v) if v else 0
 
@@ -140,6 +150,8 @@ def find_groups(arr) -> List[Group]:
         else:
             raise ValueError
 
+    print([(g.sum, g.cells) for g in result])
+
     a = np.zeros((9, 9))
     for group in result:
         for y, x in group.cells:
@@ -148,32 +160,103 @@ def find_groups(arr) -> List[Group]:
     print('groups')
     print(a)
     print()
-    if sum(group.sum for group in result) != 45*9:
-        raise ValueError
+    if sum(group.sum for group in result) != 45 * 9:
+        raise AssertionError('Sum of cages does not sum to 45*9 ')
 
     return result
 
 
-shutil.copy('index.png', 'temp.png')
+async def main(puzzle_number: int):
+    driver = webdriver.Firefox(executable_path=GeckoDriverManager().install())
 
-image = Image.open('temp.png')
+    try:
 
-print(image.format)
-print(image.size)
-print(image.mode)
-data = np.array(image.convert('LA'))
-remove_grid(data)
+        driver.get(f'http://www.dailykillersudoku.com/puzzle/{puzzle_number}')
 
-groups = find_groups(data)
+        img_data = driver.execute_script('return document.getElementsByClassName("puzzle-canvas")[0].toDataURL()')
 
-board = np.zeros((9, 9))
-import solver
+        sudoku, _ = await asyncio.gather(
+            asyncio.to_thread(solve_killer_sudoku_from_image_data, img_data),
+            asyncio.to_thread(prepare_browser, driver)
 
-print('starting solving')
-s = solver.Solver(board, groups)
-s.solve()
+        )
 
-print('solved')
-print(board)
+        enter_solution(driver, sudoku)
 
-# result_image = Image.fromarray(data)
+    finally:
+        driver.close()
+
+
+def solve_killer_sudoku_from_image_data(data: str) -> KillerSudoku:
+    image = Image.open(io.BytesIO(base64.b64decode(data.split(',')[1])))
+    # image.show()
+    image.save('temp.png')
+    shutil.copy('index.png', 'temp.png')
+
+    # image = Image.open('temp.png')
+
+    print(image.format)
+    print(image.size)
+    print(image.mode)
+    data = np.array(image.convert('LA'))
+    remove_grid(data)
+
+    sudoku = KillerSudoku()
+
+    groups = find_groups(data)
+
+    for group in groups:
+        sudoku.add_cage(group.sum, group.cells)
+
+    sudoku.print()
+    sudoku.solve()
+    sudoku.print()
+
+    print('solved')
+    return sudoku
+
+
+def prepare_browser(driver: WebDriver):
+    driver.find_element(By.XPATH, '//a[.="Sign in"]').click()
+    driver.implicitly_wait(3)
+    driver.find_element_by_id('user_email').send_keys('gustav.ledous@gmail.com')
+    driver.find_element_by_id('user_password').send_keys('fdRQNtZi4m6mYd!')
+    driver.find_element_by_id('user_password').send_keys(Keys.ENTER)
+    time.sleep(5)
+    driver.find_element(By.XPATH, '//span[.="Start Again"]').click()
+    try:
+        driver.find_element(By.XPATH, '//button[.="Yes"]').click()
+    except NoSuchElementException:
+        pass
+
+    time.sleep(3)
+
+
+def enter_solution(driver: WebDriver, sudoku: KillerSudoku):
+    first_cell = driver.find_elements_by_class_name('cell')[0]
+    ActionChains(driver).move_to_element(first_cell).click().perform()
+    time.sleep(1)
+
+    def press_key(key):
+        ActionChains(driver).send_keys(key).perform()
+
+    for row in range(9):
+        for column in range(9):
+            press_key(str(int(sudoku.grid[row, column])))
+            time.sleep(0.03)
+
+            press_key(Keys.ARROW_RIGHT)
+            time.sleep(0.03)
+
+        press_key(Keys.ARROW_DOWN)
+        time.sleep(0.03)
+
+    time.sleep(2)
+    driver.find_element(By.XPATH, '//button[.="Back to the puzzles"]').click()
+
+
+if __name__ == '__main__':
+    import sys
+
+    for puzzle in sys.argv[1:]:
+        asyncio.run(main(int(puzzle)))
