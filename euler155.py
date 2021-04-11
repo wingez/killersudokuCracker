@@ -26,14 +26,40 @@ def precompute_places(to_place: int, current_memory_size: int, current_depth: in
             current_placed.pop()
 
 
-@cache
 def parallel_coupling(r1, r2):
     return r1 + r2
 
 
-@cache
 def serial_coupling(r1, r2):
     return r1 * r2 / (r1 + r2)
+
+
+def calculate(places: List, memory: List, current_index: int, solutions: set):
+    next_to_place = places.pop()
+
+    if not next_to_place >= current_index:
+        raise AssertionError
+
+    while current_index != next_to_place:
+        current_index += 1
+        memory.append(one)
+
+    r1, r2 = memory.pop(), memory.pop()
+    for i in (True, False):
+        if i:
+            r = parallel_coupling(r1, r2)
+        else:
+            r = serial_coupling(r1, r2)
+        memory.append(r)
+        if not places:
+            if not len(memory) == 1:
+                raise AssertionError
+            solutions.add(memory[0])
+
+        else:
+            calculate(places, memory, current_index, solutions)
+
+    places.append(next_to_place)
 
 
 def main(size):
@@ -79,7 +105,7 @@ if __name__ == '__main__':
     comm = 0
     from datetime import datetime
 
-    for i in range(1, 12):
+    for i in range(1, 10):
         before = datetime.now()
         r = main(i)
 
