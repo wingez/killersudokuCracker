@@ -4,12 +4,14 @@ import io
 import shutil
 import time
 from dataclasses import dataclass
-from typing import Tuple, List
+import random
+from typing import Tuple, List, Dict
+from pathlib import Path
 
 # import cv2
 import numpy as np
-import pytesseract
-from PIL import Image
+# import pytesseract
+from PIL import Image, ImageChops
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver import ActionChains
@@ -23,7 +25,15 @@ from temp import KillerSudoku
 CELL_SIZE = 72
 
 # cv2.num
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract'
+
+digitsfolder = Path('digitimages')
+
+digitsimages: List[Tuple[Image.Image, int]] = []
+
+for path in digitsfolder.iterdir():
+    image = Image.open(path)
+    name = path.stem
+    digitsimages.append((image, int(name)))
 
 
 def remove_grid(array):
@@ -67,6 +77,16 @@ def get_number_box(arr, y, x):
 def get_value_of_cell(arr, y, x):
     digit_image = Image.fromarray(get_number_box(arr, y, x)).convert('RGBA')
 
+    for image, digit in digitsimages:
+        if not ImageChops.difference(digit_image, image).getbbox():
+            return digit
+
+    digit_image.save(str(digitsfolder / f'renameme{random.randint(0, 10000)}.png'))
+    return 0
+
+    if digit_image in imagemap:
+        return imagemap[digit_image]
+
     new_image = Image.new("RGBA", digit_image.size, "WHITE")
     new_image.paste(digit_image, (5, 5), digit_image)
     new_image.convert('RGB')
@@ -75,7 +95,7 @@ def get_value_of_cell(arr, y, x):
     # ret, img = cv2.threshold(np.array(new_image), 125, 255, cv2.THRESH_BINARY)
     # img = Image.fromarray(img)
     # new_image.show()
-    v = pytesseract.image_to_string(new_image, config='--psm 13 digits').strip()
+    # v = pytesseract.image_to_string(new_image, config='--psm 13 digits').strip()
 
     return int(v) if v else 0
 
@@ -148,7 +168,8 @@ def find_groups(arr) -> List[Group]:
                 result.append(Group(val, group))
                 break
         else:
-            raise ValueError
+            pass
+            # raise ValueError
 
     print([(g.sum, g.cells) for g in result])
 
@@ -170,7 +191,7 @@ async def main(puzzle_number: int):
     driver = webdriver.Firefox(executable_path=GeckoDriverManager().install())
 
     try:
-
+        await asyncio.sleep(5)
         driver.get(f'http://www.dailykillersudoku.com/puzzle/{puzzle_number}')
 
         img_data = driver.execute_script('return document.getElementsByClassName("puzzle-canvas")[0].toDataURL()')
@@ -217,10 +238,11 @@ def solve_killer_sudoku_from_image_data(data: str) -> KillerSudoku:
 
 
 def prepare_browser(driver: WebDriver):
+    driver.find_element_by_id('ez-accept-all').click()
     driver.find_element(By.XPATH, '//a[.="Sign in"]').click()
     driver.implicitly_wait(3)
-    driver.find_element_by_id('user_email').send_keys('gustav.ledous@gmail.com')
-    driver.find_element_by_id('user_password').send_keys('fdRQNtZi4m6mYd!')
+    driver.find_element_by_id('user_email').send_keys('tibbetobbe8@gmail.com')
+    driver.find_element_by_id('user_password').send_keys('UB9qgf38N8akN2f')
     driver.find_element_by_id('user_password').send_keys(Keys.ENTER)
     time.sleep(5)
     driver.find_element(By.XPATH, '//span[.="Start Again"]').click()

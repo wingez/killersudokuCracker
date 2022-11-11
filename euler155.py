@@ -6,6 +6,37 @@ from typing import Set, List
 
 one = Fraction(1, 1)
 
+circuits = {1: {one}}
+
+for i in range(2, 18 + 1):
+    print(f'starting {i}')
+    s = set()
+    for first_circuit_size in range(1, i):
+        other_size = i - first_circuit_size
+        if other_size <= 0:
+            continue
+        if other_size > first_circuit_size:
+            continue
+
+        for first in circuits[first_circuit_size]:
+            for other in circuits[other_size]:
+                s.add(first + other)
+                s.add((first * other) / (first + other))
+
+    circuits[i] = s
+
+unique = set()
+for index in sorted(circuits.keys()):
+    size = len(circuits[index])
+
+    unique = unique.union(circuits[index])
+
+    print(f'{index}: {len(circuits[index])}, unique: {len(unique)}')
+
+import sys
+
+sys.exit()
+
 
 def precompute_places(to_place: int, current_memory_size: int, current_depth: int, max_size: int, current_placed: List,
                       solutions: List):
